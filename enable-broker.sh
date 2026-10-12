@@ -19,7 +19,10 @@ set_env() {   # set_env KEY VALUE  (VALUE empty = remove)
 if [[ ${1:-} == --disable ]]; then
   $DOCKER compose --profile broker rm -sf mosquitto
   set_env COMPOSE_PROFILES ""; set_env MQTT_HOST ""
-  rm -f mosquitto/config/passwd
+  # owned by root (the container created it); setup.sh treats a leftover one as an
+  # older install that had the broker, so it must go
+  $DOCKER run --rm -v "$PWD/mosquitto/config:/mosquitto/config" eclipse-mosquitto:2.0.18 \
+    rm -f /mosquitto/config/passwd
   $DOCKER compose up -d poller
   echo "Built-in broker stopped. Choose another broker on the setup page, or leave MQTT off."
   exit 0
