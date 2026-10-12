@@ -30,6 +30,9 @@ class Sensor:
     device_class: str | None = None
     state_class: str | None = "measurement"
     icon: str | None = None
+    # raw value -> text, for states like the running mode. Home Assistant shows the
+    # text; InfluxDB keeps the number.
+    options: dict[int, str] | None = None
 
 
 def _kwh_day(key: str, name: str, reg: int) -> Sensor:
@@ -48,7 +51,8 @@ def _watts(key: str, name: str, reg: int, signed: bool = False) -> Sensor:
 
 SENSORS: list[Sensor] = [
     Sensor("running_state", "Running state", (59,), state_class=None,
-           icon="mdi:state-machine"),
+           icon="mdi:state-machine",
+           options={0: "Standby", 1: "Self-check", 2: "Normal", 3: "Alarm", 4: "Fault"}),
 
     # Daily energy (resets at midnight on the inverter clock)
     _kwh_day("day_battery_charge", "Battery charge today", 70),

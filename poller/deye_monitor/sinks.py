@@ -43,9 +43,15 @@ def discovery_payload(s: Sensor, cfg: Config) -> dict:
             "model": "SUN-SG LP1 hybrid",
         },
     }
+    if s.options:   # show text in Home Assistant, e.g. 2 -> "Normal"
+        mapping = ", ".join(f"{k}: {v!r}" for k, v in s.options.items())
+        payload["value_template"] = (f"{{% set m = {{{mapping}}} %}}"
+                                     f"{{{{ m.get(value_json.{s.key} | int(-1), 'Unknown') }}}}")
+        payload["device_class"] = "enum"
+        payload["options"] = [*s.options.values(), "Unknown"]
     if s.unit:
         payload["unit_of_measurement"] = s.unit
-    if s.device_class:
+    if s.device_class and not s.options:
         payload["device_class"] = s.device_class
     if s.state_class:
         payload["state_class"] = s.state_class
