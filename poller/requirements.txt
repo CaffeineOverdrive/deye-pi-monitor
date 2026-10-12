@@ -1,0 +1,4 @@
+minimalmodbus==2.1.1
+pyserial==3.5
+paho-mqtt==2.1.0
+influxdb-client==1.46.0

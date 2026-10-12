@@ -1,0 +1,62 @@
+services:
+  poller:
+    build: ./poller
+    restart: unless-stopped
+    devices:
+      - ${DEYE_SERIAL_DEVICE:-/dev/ttyUSB0}:/dev/ttyUSB0
+    environment:
+      DEYE_SERIAL_PORT: /dev/ttyUSB0
+      DEYE_SLAVE_ID: ${DEYE_SLAVE_ID:-1}
+      DEYE_BAUDRATE: ${DEYE_BAUDRATE:-9600}
+      POLL_SECONDS: ${POLL_SECONDS:-10}
+      DEVICE_ID: ${DEVICE_ID:-deye}
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      INFLUX_ORG: ${INFLUX_ORG:-home}
+      INFLUX_BUCKET: ${INFLUX_BUCKET:-deye}
+      MQTT_HOST: mosquitto
+      MQTT_USER: ${MQTT_USER}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+    depends_on: [influxdb, mosquitto]
+
+  influxdb:
+    image: influxdb:2.7.10
+    restart: unless-stopped
+    ports: ["8086:8086"]
+    volumes: [influxdb-data:/var/lib/influxdb2]
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_ADMIN_PASSWORD}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG:-home}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET:-deye}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN}
+
+  grafana:
+    image: grafana/grafana-oss:11.2.0
+    restart: unless-stopped
+    ports: ["3000:3000"]
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/deye.json
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      INFLUX_ORG: ${INFLUX_ORG:-home}
+      INFLUX_BUCKET: ${INFLUX_BUCKET:-deye}
+    depends_on: [influxdb]
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0.18
+    restart: unless-stopped
+    ports: ["1883:1883"]
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - mosquitto-data:/mosquitto/data
+
+volumes:
+  influxdb-data:
+  grafana-data:
+  mosquitto-data:
