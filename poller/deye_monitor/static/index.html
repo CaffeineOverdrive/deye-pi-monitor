@@ -147,8 +147,9 @@
       <div><label for="mqtt_user">Username</label><input id="mqtt_user" autocomplete="off"></div>
       <div><label for="mqtt_password">Password <span class="hint">(blank = keep current)</span></label><input id="mqtt_password" type="password" autocomplete="new-password"></div>
     </div>
-    <p class="hint">In Home Assistant, create a user for the monitor under <b>Settings → People → Users</b> (or in the
-      Mosquitto add-on's logins), and enter it here.</p>
+    <p class="hint">Use a broker-only login: in Home Assistant add one under <b>Settings → Add-ons → Mosquitto broker →
+      Configuration → Logins</b> (e.g. <code>deye-monitor</code>), restart the add-on, and enter it here. Avoid a Home
+      Assistant person's login: it also opens the Home Assistant app.</p>
     <div class="actions">
       <button type="button" id="test-broker">Test broker</button>
       <button type="button" class="primary" id="save-broker">Save</button>

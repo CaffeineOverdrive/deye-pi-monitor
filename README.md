@@ -63,8 +63,11 @@ It's also stored in `~/deye-pi-monitor/.env`.
    broker. MQTT stays off until you choose one.
    - **Home Assistant with the Mosquitto broker add-on (usual):** press **Find broker**.
      The Pi looks for Home Assistant on your network and checks for a broker on it.
-     Pick it, enter a Home Assistant username and password (create a user for the
-     monitor under **Settings → People**), press **Test broker**, then **Save**.
+     Pick it, enter a broker login, press **Test broker**, then **Save**.
+     For the login, add one to the add-on itself under **Settings → Add-ons →
+     Mosquitto broker → Configuration → Logins** (e.g. `deye-monitor`) and restart
+     the add-on. Don't use a Home Assistant person's login: that also works for the
+     Home Assistant app and could control your home if this Pi were compromised.
    - **No broker in Home Assistant:** install its Mosquitto broker add-on, or run
      `~/deye-pi-monitor/enable-broker.sh` to start one on the Pi. The page then shows
      what to enter under **Settings → Devices & services → Add integration → MQTT**.
