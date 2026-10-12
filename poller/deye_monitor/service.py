@@ -125,6 +125,8 @@ class Poller:
             if self._mqtt and self.failures == 3:
                 self._mqtt.mark_offline()
             return
+        if self._mqtt and self.failures >= 3:   # marked offline during the outage
+            self._mqtt.mark_online()
         self.values, self.last_ok, self.failures, self.last_error = values, time.time(), 0, None
         for sink in self._sinks:
             try:

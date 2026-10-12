@@ -97,6 +97,9 @@ class MqttSink:
     def mark_offline(self) -> None:
         self.client.publish(f"{self.base}/status", "offline", retain=True)
 
+    def mark_online(self) -> None:
+        self.client.publish(f"{self.base}/status", "online", retain=True)
+
     def close(self) -> None:
         self.mark_offline()
         self.client.disconnect()
