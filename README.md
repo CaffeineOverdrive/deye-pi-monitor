@@ -1,112 +1,132 @@
-# deye-pi-monitor
+# Deye Pi Monitor
 
-Raspberry Pi 5 monitor for a Deye single-phase hybrid inverter (SUN-xK-SG0xLP1).
+Monitor a Deye single-phase hybrid inverter (SUN-xK-SG0xLP1) from a Raspberry Pi:
+history on the Pi, a Grafana dashboard, and live data in Home Assistant.
 
 ```
-Deye ──RS485──► USB adapter ──► Pi 5
-                                 ├─ poller      reads Modbus every 10 s (read-only)
-                                 ├─ InfluxDB    stores the history on the Pi
-                                 ├─ Grafana     dashboards  → http://<pi>:3000
-                                 └─ Mosquitto   MQTT broker → Home Assistant (auto-discovered)
+Deye ─┬─ Wi-Fi logger (Solarman stick) ──LAN──┐
+      └─ or RS485 cable + USB adapter ────────┤
+                                              ▼
+                                Raspberry Pi
+                                 ├─ setup page   http://<pi>:8088
+                                 ├─ InfluxDB     history on the Pi
+                                 ├─ Grafana      dashboard  http://<pi>:3000
+                                 └─ Mosquitto    MQTT → Home Assistant (auto-discovered)
 ```
 
-The poller only issues Modbus *read* requests (function 0x03). It never writes
-settings to the inverter.
+It only ever *reads* from the inverter and never changes its settings.
 
-## Hardware
+## Install
 
-- Raspberry Pi 5 (2 GB is plenty — the whole stack uses about 200 MB of RAM) with a
-  good SD card or, better, an NVMe/USB SSD.
-- USB-to-RS485 adapter (CH340 or FTDI based, with A/B screw terminals).
-- A length of CAT5/6 cable with an RJ45 plug on the inverter end.
-
-### Wiring
-
-Use the inverter's **RS485 / Modbus** RJ45 port — not the BMS (battery) port and
-not the meter port. The Wi-Fi logger stick can stay plugged in; it uses its own port.
-
-| RJ45 pin (Deye SG04LP1 RS485 port) | Adapter |
-|---|---|
-| 1 | B− |
-| 2 | A+ |
-
-Pinouts differ between hardware revisions, so check your inverter's manual. Swapping
-A and B is harmless; if `dump` below gets timeouts, swap the two wires and try again.
-Defaults: slave ID 1, 9600 baud, 8N1 (the "Modbus SN" setting on the inverter
-display, under Advanced settings, must match `DEYE_SLAVE_ID`).
-
-## Install on the Pi
+You need a Raspberry Pi 3, 4 or 5 running a **64-bit** OS: Raspberry Pi OS (64-bit), or
+OctoPi's 64-bit image. Check with `dpkg --print-architecture`; it must say `arm64`. The
+stack uses about 200 MB of RAM. On the Pi, run:
 
 ```bash
-# Raspberry Pi OS Lite 64-bit (Bookworm), then:
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER   # log out and back in
-
-git clone <this repo> deye-pi-monitor && cd deye-pi-monitor
-./setup.sh                      # writes .env with random secrets + MQTT user
-
-# 1. Check the readings against the inverter's LCD before going further
-docker compose run --rm poller python -m deye_monitor.dump
-
-# 2. Start everything
-docker compose up -d --build
+curl -fsSL https://raw.githubusercontent.com/CaffeineOverdrive/deye-pi-monitor/main/install.sh | bash
 ```
 
-Grafana: `http://<pi-ip>:3000`. Log in as `admin` with `GRAFANA_ADMIN_PASSWORD`
-from `.env`. The "Deye inverter" dashboard is the home page.
+This installs Docker if needed, downloads the project to `~/deye-pi-monitor`, creates
+random passwords and starts everything. The first run takes 5–10 minutes. At the end it
+prints the setup page address and the admin password.
+
+### Sharing a Pi with OctoPrint or other projects
+
+- The monitor has **no access to USB devices** unless you run `enable-rs485.sh`. Even
+  then it gets only the adapter you identify, never the printer.
+- Its containers run at low CPU priority, so the printer host gets the CPU first.
+  Install or update when the printer is idle: the first build takes a few minutes of CPU.
+- Any default port already in use is moved automatically, so it won't clash with
+  OctoPi's webcam on 8080 or an existing MQTT broker on 1883.
+
+## Set up
+
+Open `http://<pi-ip>:8088` (the installer prints the exact address) and log in as `admin` with the password the installer printed.
+It's also stored in `~/deye-pi-monitor/.env`.
+
+1. **Choose how the inverter is connected.**
+   - **Wi-Fi logger:** the Solarman stick that came with the inverter. Press **Find my
+     logger** and the Pi searches your network. If nothing is found, type in the logger's
+     IP address and the serial number from the sticker on the stick (not the inverter's
+     serial). Give the logger a fixed IP in your router so the address doesn't change.
+   - **RS485 cable:** see [Wiring](#rs485-wiring). For safety the monitor can't see any
+     USB devices until you choose one: on the Pi run `~/deye-pi-monitor/enable-rs485.sh`.
+     It asks you to unplug and re-plug the adapter, so it can never pick a 3D printer or
+     anything else, then press **Refresh** on the setup page.
+2. Press **Test connection**. You should see PV, load and battery readings that match
+   the inverter's screen. Then press **Save and start**.
+3. **Home Assistant (optional):** the page shows the broker, username and password to
+   enter under **Settings → Devices & services → Add integration → MQTT**. A
+   **Deye inverter** device then appears automatically. Already running the Mosquitto
+   add-on in HA? Open **Use my own MQTT broker instead** and point the Pi at it.
+
+For the HA **Energy** dashboard use *Grid import total*, *Grid export total*,
+*PV energy total* and *Battery charge total* / *Battery discharge total*.
 
 ## Dashboard
+
+`http://<pi-ip>:3000`. Anyone on your home network can view it; log in as `admin` to edit.
 
 - **Now:** PV, load, battery SOC, battery power, grid power, inverter temperature.
 - **Today:** PV, load, grid import and export (kWh), **self-sufficiency** (share of
   load not bought from the grid) and **PV self-consumption** (share of PV not exported).
-- **Power flow** over time: PV, load, battery (+ discharge / − charge), grid (+ import / − export).
-- Battery SOC, the two PV strings, and **daily energy bars for the last 30 days**.
+- **Power flow** over time, battery SOC, the two PV strings, and **daily energy for the
+  last 30 days**.
 
-To change the dashboard, edit `tools/build_dashboard.py`, run it, and
-`docker compose restart grafana`. Day boundaries use `Africa/Johannesburg`; change
-`TZ` at the top of that file if needed.
+Day boundaries use `Africa/Johannesburg`. To change that or the layout, edit
+`tools/build_dashboard.py`, run it, and `docker compose restart grafana`.
 
-## Home Assistant
+## RS485 wiring
 
-1. In HA: **Settings → Devices & services → Add integration → MQTT**.
-   Broker = Pi IP, port 1883, username/password = `MQTT_USER` / `MQTT_PASSWORD` from `.env`.
-2. A **Deye inverter** device appears with all the sensors (MQTT discovery). It shows
-   *unavailable* if the poller stops or loses the inverter.
-3. **Settings → Dashboards → Energy:**
-   - Grid consumption → `Grid import total`
-   - Return to grid → `Grid export total`
-   - Solar production → `PV energy total`
-   - Home battery → `Battery charge total` / `Battery discharge total`
+Use a USB-to-RS485 adapter (CH340 or FTDI) and the inverter's **RS485 / Modbus** RJ45
+port: not the BMS (battery) port and not the meter port. The Wi-Fi logger can stay
+plugged in.
 
-Topics: state is JSON on `deye/<DEVICE_ID>/state`, availability on
-`deye/<DEVICE_ID>/status`, discovery under `homeassistant/sensor/<DEVICE_ID>/…`.
+| RJ45 pin (SG04LP1 RS485 port) | Adapter |
+|---|---|
+| 1 | B− |
+| 2 | A+ |
 
-## Configuration (`.env`)
+Pinouts differ between hardware revisions, so check the inverter manual. Swapping A
+and B is harmless: if the test fails, swap them and try again. The inverter's
+"Modbus SN" (Advanced settings) must match the Modbus ID on the setup page (default 1).
 
-| Variable | Default | |
-|---|---|---|
-| `DEYE_SERIAL_DEVICE` | `/dev/ttyUSB0` | `setup.sh` switches this to the stable `/dev/serial/by-id/…` path |
-| `DEYE_SLAVE_ID` | `1` | Must match the inverter's Modbus SN |
-| `POLL_SECONDS` | `10` | |
-| `DEVICE_ID` | `deye` | Used in MQTT topics and HA entity IDs |
+## Everyday commands
 
-## Register map
+Run these in `~/deye-pi-monitor`:
 
-`poller/deye_monitor/registers.py` follows the community map used by
-kellerza/sunsynk and home_assistant_solarman. Sign conventions: battery power is
-**+ discharge / − charge** and grid power is **+ import / − export**. If a value looks
-wrong on your firmware, `dump` prints the raw register next to each decoded value.
+| | |
+|---|---|
+| Update | run the install command again (keeps settings, passwords and history) |
+| Logs | `docker compose logs -f poller` |
+| Raw register dump | `docker compose exec poller python -m deye_monitor.dump` |
+| Restart | `docker compose restart` |
+| Stop using RS485 | `./enable-rs485.sh --disable` |
+| Uninstall, keeping data | `docker compose down` |
+| Uninstall, deleting data | `docker compose down -v && cd .. && rm -rf deye-pi-monitor` |
+
+Back up history with
+`docker compose exec influxdb influx backup /var/lib/influxdb2/backup -t <INFLUX_TOKEN from .env>`.
+
+## Troubleshooting
+
+- **"Find my logger" finds nothing:** the Pi and the logger must be on the same network,
+  and some routers block broadcast between Wi-Fi and wired clients. Enter the IP by hand:
+  it's on the router's client list, often named after the logger's MAC address.
+- **Test says "no valid reply":** for Wi-Fi, check the serial number is the *logger's*
+  (10 digits, on the stick). For RS485, swap A/B and check the Modbus ID.
+- **RS485: monitor won't start after a reboot:** the adapter must be plugged in at boot.
+  Plug it in and run `docker compose up -d`, or run `./enable-rs485.sh --disable`.
+- **Values look wrong:** `dump` prints each raw register next to its decoded value.
+  The register map is in `poller/deye_monitor/registers.py` and follows the community map
+  used by kellerza/sunsynk. Sign conventions: battery power is **+ discharge / − charge**,
+  grid power is **+ import / − export**.
 
 ## Development
 
 ```bash
-cd poller && python -m unittest discover -s tests
+cd poller && pip install -r requirements.txt && python -m unittest discover -s tests
 ```
 
-## Maintenance
-
-- Back up InfluxDB: `docker compose exec influxdb influx backup /var/lib/influxdb2/backup -t $INFLUX_TOKEN`.
-  A 10 s poll stores well under 1 GB a year.
-- Update: `git pull && docker compose up -d --build`.
-- Logs: `docker compose logs -f poller`.
+`install.sh` honours `DEYE_MONITOR_REPO`, `DEYE_MONITOR_BRANCH` and `DEYE_MONITOR_DIR`
+for testing forks and branches.

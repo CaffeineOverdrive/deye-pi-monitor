@@ -1,0 +1,6 @@
+# Enabled by ./enable-rs485.sh (via COMPOSE_FILE in .env). Passes through only the
+# adapter chosen there, under a fixed name inside the container.
+services:
+  poller:
+    devices:
+      - ${RS485_DEVICE}:/dev/deye-rs485

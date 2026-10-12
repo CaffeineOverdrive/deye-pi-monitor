@@ -1,28 +1,26 @@
 services:
+  # Setup page + inverter poller. Host networking so the logger scan's UDP broadcast
+  # reaches the LAN. It gets NO access to serial/USB devices: other things on the Pi
+  # (e.g. a 3D printer) use those. RS485 users opt in with ./enable-rs485.sh, which
+  # passes through just the one adapter they pick.
   poller:
     build: ./poller
     restart: unless-stopped
-    devices:
-      - ${DEYE_SERIAL_DEVICE:-/dev/ttyUSB0}:/dev/ttyUSB0
+    network_mode: host
+    cpu_shares: 256       # lower priority than everything else on the Pi (default 1024)
+    volumes:
+      - poller-data:/data
+    env_file: .env
     environment:
-      DEYE_SERIAL_PORT: /dev/ttyUSB0
-      DEYE_SLAVE_ID: ${DEYE_SLAVE_ID:-1}
-      DEYE_BAUDRATE: ${DEYE_BAUDRATE:-9600}
-      POLL_SECONDS: ${POLL_SECONDS:-10}
-      DEVICE_ID: ${DEVICE_ID:-deye}
-      INFLUX_URL: http://influxdb:8086
-      INFLUX_TOKEN: ${INFLUX_TOKEN}
-      INFLUX_ORG: ${INFLUX_ORG:-home}
-      INFLUX_BUCKET: ${INFLUX_BUCKET:-deye}
-      MQTT_HOST: mosquitto
-      MQTT_USER: ${MQTT_USER}
-      MQTT_PASSWORD: ${MQTT_PASSWORD}
+      INFLUX_URL: http://localhost:${INFLUX_PORT:-8086}
+      MQTT_HOST: localhost
     depends_on: [influxdb, mosquitto]
 
   influxdb:
     image: influxdb:2.7.10
     restart: unless-stopped
-    ports: ["8086:8086"]
+    cpu_shares: 256
+    ports: ["127.0.0.1:${INFLUX_PORT:-8086}:8086"]   # only the poller needs it from outside
     volumes: [influxdb-data:/var/lib/influxdb2]
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
@@ -35,14 +33,18 @@ services:
   grafana:
     image: grafana/grafana-oss:11.2.0
     restart: unless-stopped
-    ports: ["3000:3000"]
+    cpu_shares: 256
+    ports: ["${GRAFANA_PORT:-3000}:3000"]
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SECURITY_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/deye.json
+      # Anyone on your home network can view (not edit) the dashboard without logging in
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       INFLUX_TOKEN: ${INFLUX_TOKEN}
       INFLUX_ORG: ${INFLUX_ORG:-home}
       INFLUX_BUCKET: ${INFLUX_BUCKET:-deye}
@@ -51,12 +53,14 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2.0.18
     restart: unless-stopped
-    ports: ["1883:1883"]
+    cpu_shares: 256
+    ports: ["${MQTT_PORT:-1883}:1883"]
     volumes:
       - ./mosquitto/config:/mosquitto/config
       - mosquitto-data:/mosquitto/data
 
 volumes:
+  poller-data:
   influxdb-data:
   grafana-data:
   mosquitto-data:

@@ -65,7 +65,9 @@ class MqttSink:
         if cfg.mqtt_user:
             self.client.username_pw_set(cfg.mqtt_user, cfg.mqtt_password)
         self.client.will_set(f"{self.base}/status", "offline", retain=True)
+        self.connected = False
         self.client.on_connect = self._on_connect
+        self.client.on_disconnect = self._on_disconnect
         self.client.connect_async(cfg.mqtt_host, cfg.mqtt_port, keepalive=60)
         self.client.loop_start()
 
@@ -78,9 +80,18 @@ class MqttSink:
             topic = f"{self.cfg.ha_discovery_prefix}/sensor/{self.cfg.device_id}/{s.key}/config"
             client.publish(topic, json.dumps(discovery_payload(s, self.cfg)), retain=True)
         client.publish(f"{self.base}/status", "online", retain=True)
+        self.connected = True
+
+    def _on_disconnect(self, client, userdata, flags, reason_code, properties):
+        self.connected = False
 
     def write(self, values: dict[str, float]) -> None:
         self.client.publish(f"{self.base}/state", json.dumps(values))
 
     def mark_offline(self) -> None:
         self.client.publish(f"{self.base}/status", "offline", retain=True)
+
+    def close(self) -> None:
+        self.mark_offline()
+        self.client.disconnect()
+        self.client.loop_stop()

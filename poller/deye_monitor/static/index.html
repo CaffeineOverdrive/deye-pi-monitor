@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deye Pi Monitor</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f6f6f4; --surface: #ffffff; --border: #e2e1dc;
+    --text: #1b1b1a; --muted: #62615c; --accent: #2a78d6; --accent-text: #ffffff;
+    --good: #1a7f37; --warn: #9a6700; --bad: #c62828; --code: #f0efeb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { color-scheme: dark;
+      --bg: #121211; --surface: #1c1c1b; --border: #33322f;
+      --text: #f0efec; --muted: #a8a79f; --accent: #3987e5; --accent-text: #ffffff;
+      --good: #4ac26b; --warn: #d4a72c; --bad: #f47067; --code: #262624; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  section { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+            padding: 18px; margin-bottom: 16px; }
+  label { display: block; font-weight: 600; margin: 12px 0 4px; }
+  .hint { color: var(--muted); font-size: 13px; font-weight: 400; }
+  input, select { width: 100%; padding: 9px 10px; font: inherit; color: var(--text);
+                  background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
+  button { font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button:disabled { opacity: .55; cursor: progress; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  .choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .choice label { margin: 0; font-weight: 400; border: 1px solid var(--border); border-radius: 8px;
+                  padding: 12px; cursor: pointer; }
+  .choice label:has(input:checked) { border-color: var(--accent); outline: 1px solid var(--accent); }
+  .choice input { width: auto; margin-right: 6px; }
+  .choice b { display: block; }
+  .found { list-style: none; padding: 0; margin: 10px 0 0; }
+  .found li button { width: 100%; text-align: left; font-weight: 400; margin-bottom: 6px; }
+  .status { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+  .ok .dot { background: var(--good); } .error .dot { background: var(--bad); }
+  .connecting .dot { background: var(--warn); }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+  @media (max-width: 520px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+  .tile { border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+  .tile span { display: block; color: var(--muted); font-size: 12px; }
+  .tile b { font-size: 20px; font-variant-numeric: tabular-nums; }
+  .msg { margin-top: 12px; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); }
+  .msg.good { border-color: var(--good); } .msg.bad { border-color: var(--bad); }
+  .msg:empty { display: none; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; }
+  dt { color: var(--muted); } dd { margin: 0; }
+  code { background: var(--code); padding: 1px 6px; border-radius: 4px; font-size: 14px; word-break: break-all; }
+  details summary { cursor: pointer; color: var(--muted); margin-top: 14px; }
+  a { color: var(--accent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Deye Pi Monitor</h1>
+  <p class="lead">Connect this Pi to your Deye inverter, then view the dashboard or send the data to Home Assistant.</p>
+
+  <section id="status-card" aria-live="polite">
+    <div class="status" id="status"><span class="dot"></span><span id="status-text">Loading…</span></div>
+    <div class="hint" id="status-detail"></div>
+    <div class="tiles" id="live" hidden></div>
+    <div class="actions"><a id="grafana-link" href="#" target="_blank" rel="noopener"><button type="button">Open dashboard</button></a></div>
+  </section>
+
+  <section>
+    <h2>1. How is the inverter connected?</h2>
+    <div class="choice" role="radiogroup">
+      <label><input type="radio" name="transport" value="solarman" checked>
+        <b>Wi-Fi logger</b><span class="hint">The Solarman stick plugged into the inverter. No wiring.</span></label>
+      <label><input type="radio" name="transport" value="rs485">
+        <b>RS485 cable</b><span class="hint">USB-RS485 adapter wired to the inverter's Modbus port.</span></label>
+    </div>
+
+    <div id="solarman-fields">
+      <div class="actions"><button type="button" id="scan">Find my logger</button></div>
+      <ul class="found" id="found"></ul>
+      <div class="row">
+        <div><label for="logger_ip">Logger IP address</label>
+          <input id="logger_ip" inputmode="decimal" placeholder="192.168.1.50" autocomplete="off"></div>
+        <div><label for="logger_serial">Logger serial number <span class="hint">(on the stick's sticker)</span></label>
+          <input id="logger_serial" inputmode="numeric" placeholder="2712345678" autocomplete="off"></div>
+      </div>
+      <p class="hint">Tip: give the logger a fixed IP (DHCP reservation) in your router so it doesn't change.</p>
+    </div>
+
+    <div id="rs485-fields" hidden>
+      <div class="msg" id="rs485-help" hidden>For safety the monitor can't see any USB devices until you choose the
+        adapter. On the Pi run <code>~/deye-pi-monitor/enable-rs485.sh</code>: it asks you to unplug and
+        re-plug the adapter, so it can never pick your 3D printer or anything else. Then press Refresh.</div>
+      <label for="serial_port">USB adapter</label>
+      <div class="row" style="grid-template-columns: 1fr auto">
+        <select id="serial_port"></select>
+        <button type="button" id="refresh-ports">Refresh</button>
+      </div>
+      <label for="baudrate">Baud rate</label>
+      <select id="baudrate"><option>9600</option><option>19200</option><option>38400</option><option>115200</option></select>
+    </div>
+
+    <details>
+      <summary>Advanced</summary>
+      <div class="row">
+        <div><label for="slave_id">Modbus ID <span class="hint">(“Modbus SN” on the inverter)</span></label>
+          <input id="slave_id" type="number" min="1" max="247" value="1"></div>
+        <div><label for="poll_seconds">Read every (seconds)</label>
+          <input id="poll_seconds" type="number" min="2" value="10"></div>
+      </div>
+      <div id="port-field"><label for="logger_port">Logger port</label>
+        <input id="logger_port" type="number" value="8899"></div>
+    </details>
+
+    <h2 style="margin-top:20px">2. Test and save</h2>
+    <div class="actions">
+      <button type="button" id="test">Test connection</button>
+      <button type="button" class="primary" id="save">Save and start</button>
+    </div>
+    <div class="msg" id="test-msg"></div>
+  </section>
+
+  <section>
+    <h2>3. Home Assistant (optional)</h2>
+    <p class="hint" style="margin-top:0">In Home Assistant go to <b>Settings → Devices &amp; services → Add integration → MQTT</b> and enter:</p>
+    <dl id="ha"></dl>
+    <p class="hint">A <b>Deye inverter</b> device then appears automatically. For the Energy dashboard use
+      <i>Grid import total</i>, <i>Grid export total</i>, <i>PV energy total</i> and <i>Battery charge/discharge total</i>.</p>
+    <details>
+      <summary>Use my own MQTT broker instead</summary>
+      <p class="hint">For example the Mosquitto add-on in Home Assistant. Leave the password blank to keep the current one.</p>
+      <div class="row">
+        <div><label for="mqtt_host">Broker host</label><input id="mqtt_host" autocomplete="off"></div>
+        <div><label for="mqtt_port">Port</label><input id="mqtt_port" type="number" value="1883"></div>
+        <div><label for="mqtt_user">Username</label><input id="mqtt_user" autocomplete="off"></div>
+        <div><label for="mqtt_password">Password</label><input id="mqtt_password" type="password" autocomplete="new-password"></div>
+      </div>
+      <p class="hint">Saved together with the connection settings above.</p>
+    </details>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const FIELDS = ["logger_ip", "logger_serial", "logger_port", "serial_port", "baudrate",
+                "slave_id", "poll_seconds", "mqtt_host", "mqtt_port", "mqtt_user", "mqtt_password"];
+const TILES = [["pv_power", "PV", "W"], ["load_power", "Load", "W"],
+               ["battery_soc", "Battery", "%"], ["grid_power", "Grid", "W"]];
+let loaded = false;
+
+const transport = () => document.querySelector("input[name=transport]:checked").value;
+function showTransport() {
+  const wifi = transport() === "solarman";
+  $("solarman-fields").hidden = !wifi; $("port-field").hidden = !wifi;
+  $("rs485-fields").hidden = wifi;
+  if (!wifi && !$("serial_port").options.length) loadPorts();
+}
+document.querySelectorAll("input[name=transport]").forEach(r => r.addEventListener("change", showTransport));
+
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} :
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || res.statusText);
+  return data;
+}
+
+function formBody() {
+  const body = { transport: transport() };
+  for (const f of FIELDS) body[f] = $(f).value.trim();
+  return body;
+}
+
+function message(text, kind) { const m = $("test-msg"); m.textContent = text; m.className = "msg " + (kind || ""); }
+
+function tiles(values) {
+  return TILES.map(([k, label, unit]) =>
+    `<div class="tile"><span>${label}</span><b>${values[k] === undefined ? "–" : Math.round(values[k])} ${unit}</b></div>`).join("");
+}
+
+async function busy(btn, fn) {
+  const old = btn.textContent; btn.disabled = true; btn.textContent = old + "…";
+  try { await fn(); } finally { btn.disabled = false; btn.textContent = old; }
+}
+
+$("scan").onclick = e => busy(e.target, async () => {
+  $("found").innerHTML = "";
+  try {
+    const { loggers } = await api("/api/scan", {});
+    if (!loggers.length) { message("No logger answered. Check it is on the same network as this Pi, or enter its IP and serial by hand.", "bad"); return; }
+    message("");
+    for (const l of loggers) {
+      const li = document.createElement("li"), b = document.createElement("button");
+      b.type = "button"; b.textContent = `Logger ${l.serial} at ${l.ip}`;
+      b.onclick = () => { $("logger_ip").value = l.ip; $("logger_serial").value = l.serial; message("Logger selected. Now test the connection.", "good"); };
+      li.append(b); $("found").append(li);
+    }
+    if (loggers.length === 1) $("found").querySelector("button").click();
+  } catch (err) { message(err.message, "bad"); }
+});
+
+async function loadPorts() {
+  const { ports } = await api("/api/serial-ports");
+  const sel = $("serial_port"), current = sel.value || sel.dataset.saved;
+  sel.innerHTML = ports.length ? "" : "<option value=''>No adapter enabled yet</option>";
+  for (const p of ports) sel.add(new Option(p.label, p.path, false, p.path === current));
+  $("rs485-help").hidden = ports.length > 0;
+}
+$("refresh-ports").onclick = e => busy(e.target, loadPorts);
+
+$("test").onclick = e => busy(e.target, async () => {
+  message("Talking to the inverter…");
+  try {
+    const r = await api("/api/test", formBody());
+    if (r.ok) {
+      const v = r.values;
+      message(`Connected. PV ${Math.round(v.pv_power)} W, load ${Math.round(v.load_power)} W, battery ${v.battery_soc}% at ${v.battery_voltage} V. Check these match the inverter's screen, then save.`, "good");
+    } else {
+      message(`No answer from the inverter: ${r.error}. ` + (transport() === "solarman"
+        ? "Check the IP and the logger serial number (not the inverter's serial)."
+        : "Check the wiring; if it still fails, swap the A and B wires."), "bad");
+    }
+  } catch (err) { message(err.message, "bad"); }
+});
+
+$("save").onclick = e => busy(e.target, async () => {
+  try { await api("/api/settings", formBody()); message("Saved. Polling has started.", "good"); $("mqtt_password").value = ""; refresh(); }
+  catch (err) { message(err.message, "bad"); }
+});
+
+function ago(ts) { const s = Math.round(Date.now() / 1000 - ts); return s < 60 ? `${s}s ago` : `${Math.round(s / 60)} min ago`; }
+
+async function refresh() {
+  let s; try { s = await api("/api/status"); } catch { return; }
+  const text = { ok: "Connected to inverter", connecting: "Connecting…", error: "Can't reach the inverter",
+                 not_configured: "Not set up yet: choose a connection below" }[s.state];
+  $("status").className = "status " + s.state; $("status-text").textContent = text;
+  $("status-detail").textContent = s.state === "ok" ? `Last reading ${ago(s.last_ok)}` + (s.mqtt_connected ? " · MQTT connected" : "")
+                                 : s.state === "error" ? s.last_error : "";
+  $("live").hidden = !Object.keys(s.values).length; $("live").innerHTML = tiles(s.values);
+  $("grafana-link").href = s.grafana_url;
+
+  const ha = s.home_assistant;
+  $("ha").innerHTML = ha.builtin
+    ? `<dt>Broker</dt><dd><code>${esc(ha.broker)}</code></dd><dt>Port</dt><dd><code>${esc(ha.port)}</code></dd>
+       <dt>Username</dt><dd><code>${esc(ha.username)}</code></dd><dt>Password</dt><dd><code>${esc(ha.password)}</code></dd>`
+    : `<dt>Sending to</dt><dd><code>${esc(ha.broker)}:${esc(ha.port)}</code> (your broker; HA picks it up automatically)</dd>`;
+
+  if (!loaded) {   // fill the form once, so polling doesn't overwrite what the user is typing
+    loaded = true;
+    const st = s.settings;
+    if (st.transport) document.querySelector(`input[name=transport][value=${st.transport}]`).checked = true;
+    for (const f of FIELDS) if (st[f] !== null && st[f] !== undefined && f !== "mqtt_password") $(f).value = st[f];
+    if (ha.builtin) { for (const f of ["mqtt_host", "mqtt_user"]) $(f).value = ""; $("mqtt_port").value = 1883; }
+    $("serial_port").dataset.saved = st.transport === "rs485" ? st.serial_port : "";
+    showTransport();
+  }
+}
+refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>

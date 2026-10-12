@@ -3,14 +3,14 @@
     docker compose run --rm poller python -m deye_monitor.dump
 """
 
-from .config import Config
-from .reader import DeyeReader
+from .config import load_config
+from .reader import make_reader
 from .registers import SENSORS, decode
 
 
 def main() -> None:
-    cfg = Config()
-    raw = DeyeReader(cfg.serial_port, cfg.slave_id, cfg.baudrate).read_raw()
+    cfg = load_config()
+    raw = make_reader(cfg).read_raw()
     values = decode(raw)
     for s in SENSORS:
         regs = ",".join(f"{r}={raw.get(r)}" for r in s.regs)
