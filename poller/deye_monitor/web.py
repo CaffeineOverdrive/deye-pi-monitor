@@ -108,12 +108,12 @@ def serial_ports() -> dict:
     return {"ports": list_serial_ports()}
 
 
-def _candidate(p: Poller, body: dict):
+def _candidate(p: Poller, body: dict, mqtt_only: bool = False):
     changes = dict(body)
     if not changes.get("mqtt_password"):
         changes.pop("mqtt_password", None)   # blank = keep the stored password
     try:
-        return p.cfg.updated(changes)
+        return p.cfg.updated(changes, mqtt_only=mqtt_only)
     except (TypeError, ValueError) as e:
         raise HTTPException(422, str(e))
 
@@ -133,7 +133,16 @@ def test(body: dict, p: Poller = Depends(poller)) -> dict:
 
 @app.post("/api/settings", dependencies=[Depends(require_admin)])
 def save(body: dict, p: Poller = Depends(poller)) -> dict:
-    cfg = _candidate(p, body)
+    return _save(p, _candidate(p, body))
+
+
+@app.post("/api/mqtt", dependencies=[Depends(require_admin)])
+def save_mqtt(body: dict, p: Poller = Depends(poller)) -> dict:
+    """Broker settings on their own: they don't depend on the inverter being set up."""
+    return _save(p, _candidate(p, body, mqtt_only=True))
+
+
+def _save(p: Poller, cfg: Config) -> dict:
     save_config(cfg)
     p.apply(cfg)
     log.info("settings saved: %s", {**cfg.editable(), "mqtt_password": "***"})

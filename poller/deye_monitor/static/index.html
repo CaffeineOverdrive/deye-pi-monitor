@@ -79,7 +79,7 @@
   </section>
 
   <section>
-    <h2>1. How is the inverter connected?</h2>
+    <h2>Inverter: how is it connected?</h2>
     <div class="choice" role="radiogroup">
       <label><input type="radio" name="transport" value="solarman" checked>
         <b>Wi-Fi logger</b><span class="hint">The Solarman stick plugged into the inverter. No wiring.</span></label>
@@ -124,7 +124,7 @@
         <input id="logger_port" type="number" value="8899"></div>
     </details>
 
-    <h2 style="margin-top:20px">2. Test and save</h2>
+    <h2 style="margin-top:20px">Test and save</h2>
     <div class="actions">
       <button type="button" id="test">Test connection</button>
       <button type="button" class="primary" id="save">Save and start</button>
@@ -133,7 +133,7 @@
   </section>
 
   <section>
-    <h2>3. Home Assistant (optional)</h2>
+    <h2>Home Assistant (optional)</h2>
     <p class="hint" style="margin-top:0" id="mqtt-state"></p>
     <dl id="ha"></dl>
     <p class="hint">The Pi sends live readings to Home Assistant through an MQTT broker. If Home Assistant runs its
@@ -168,8 +168,10 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const FIELDS = ["logger_ip", "logger_serial", "logger_port", "serial_port", "baudrate",
-                "slave_id", "poll_seconds", "mqtt_host", "mqtt_port", "mqtt_user", "mqtt_password"];
+const INVERTER_FIELDS = ["logger_ip", "logger_serial", "logger_port", "serial_port", "baudrate",
+                         "slave_id", "poll_seconds"];
+const MQTT_FIELDS = ["mqtt_host", "mqtt_port", "mqtt_user", "mqtt_password"];
+const FIELDS = [...INVERTER_FIELDS, ...MQTT_FIELDS];
 const TILES = [["pv_power", "PV", "W"], ["load_power", "Load", "W"],
                ["battery_soc", "Battery", "%"], ["grid_power", "Grid", "W"]];
 let loaded = false;
@@ -191,9 +193,9 @@ async function api(path, body) {
   return data;
 }
 
-function formBody() {
-  const body = { transport: transport() };
-  for (const f of FIELDS) body[f] = $(f).value.trim();
+function formBody(fields = INVERTER_FIELDS) {
+  const body = fields === MQTT_FIELDS ? {} : { transport: transport() };
+  for (const f of fields) body[f] = $(f).value.trim();
   return body;
 }
 
@@ -250,12 +252,20 @@ $("test").onclick = e => busy(e.target, async () => {
   } catch (err) { message(err.message, "bad"); }
 });
 
-async function saveAll(say) {
-  try { await api("/api/settings", formBody()); say("Saved. Polling has started.", "good"); $("mqtt_password").value = ""; refresh(); }
-  catch (err) { say(err.message, "bad"); }
-}
-$("save").onclick = e => busy(e.target, () => saveAll(message));
-$("save-broker").onclick = e => busy(e.target, () => saveAll(brokerMessage));
+let inverterReady = false;   // from /api/status
+
+$("save").onclick = e => busy(e.target, async () => {
+  try { await api("/api/settings", formBody()); message("Saved. Polling has started.", "good"); refresh(); }
+  catch (err) { message(err.message, "bad"); }
+});
+$("save-broker").onclick = e => busy(e.target, async () => {
+  try {
+    await api("/api/mqtt", formBody(MQTT_FIELDS)); $("mqtt_password").value = "";
+    brokerMessage(!$("mqtt_host").value.trim() ? "Saved." : inverterReady ? "Saved. Sending to the broker."
+      : "Saved. Data is sent as soon as the inverter connection above is set up.", "good");
+    refresh();
+  } catch (err) { brokerMessage(err.message, "bad"); }
+});
 
 const BROKER_STATUS = {
   ok: "logs in without a password", auth_required: "needs a username and password",
@@ -292,7 +302,7 @@ $("scan-brokers").onclick = e => busy(e.target, async () => {
 $("test-broker").onclick = e => busy(e.target, async () => {
   brokerMessage("Connecting to the broker…");
   try {
-    const r = await api("/api/brokers/test", formBody());
+    const r = await api("/api/brokers/test", formBody(MQTT_FIELDS));
     const why = ["unreachable", "refused"].includes(r.status) ? ` (${r.detail})` : "";
     brokerMessage(r.status === "ok" ? "Logged in. Save to start sending." : `Broker: ${BROKER_STATUS[r.status] || r.status}${why}.`,
                   r.status === "ok" ? "good" : "bad");
@@ -311,6 +321,7 @@ async function refresh() {
   $("live").hidden = !Object.keys(s.values).length; $("live").innerHTML = tiles(s.values);
   $("grafana-link").href = s.grafana_url;
 
+  inverterReady = s.state !== "not_configured";
   const ha = s.home_assistant;
   $("mqtt-state").textContent = !ha.enabled ? "MQTT is off: nothing is sent to Home Assistant yet."
     : ha.builtin ? "Using the broker on this Pi. In Home Assistant go to Settings → Devices & services → Add integration → MQTT and enter:"

@@ -24,6 +24,7 @@ EDITABLE = (
     "serial_port", "baudrate", "slave_id", "poll_seconds",
     "mqtt_host", "mqtt_port", "mqtt_user", "mqtt_password",
 )
+MQTT_FIELDS = ("mqtt_host", "mqtt_port", "mqtt_user", "mqtt_password")
 _INT = {"logger_serial", "logger_port", "baudrate", "slave_id", "mqtt_port"}
 _FLOAT = {"poll_seconds"}
 
@@ -79,8 +80,9 @@ class Config:
     def editable(self) -> dict:
         return {k: getattr(self, k) for k in EDITABLE}
 
-    def updated(self, changes: dict) -> "Config":
-        """Copy with validated changes applied. Raises ValueError on bad input."""
+    def updated(self, changes: dict, mqtt_only: bool = False) -> "Config":
+        """Copy with validated changes applied. Raises ValueError on bad input.
+        mqtt_only: change just the broker settings, whatever the inverter state."""
         data = asdict(self)
         defaults = asdict(Config())   # environment values
         changes = dict(changes)
@@ -98,7 +100,7 @@ class Config:
                     changes.pop(k, None)
                     data[k] = None
         for k, v in changes.items():
-            if k not in EDITABLE:
+            if k not in (MQTT_FIELDS if mqtt_only else EDITABLE):
                 continue
             if v in ("", None):
                 data[k] = defaults[k]   # blank = default
@@ -108,6 +110,8 @@ class Config:
             except ValueError:
                 raise ValueError(f"{k.replace('_', ' ')} must be a number") from None
         cfg = Config(**data)
+        if mqtt_only:
+            return cfg
         if cfg.transport not in ("solarman", "rs485"):
             raise ValueError("transport must be solarman or rs485")
         if not 1 <= cfg.slave_id <= 247:

@@ -65,6 +65,19 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual((moved.mqtt_user, moved.mqtt_password), ("pi", None))
 
 
+    def test_broker_saves_without_inverter_and_inverter_save_keeps_broker(self):
+        cfg = Config().updated({"mqtt_host": "192.168.1.33", "mqtt_user": "u", "mqtt_password": "p"},
+                               mqtt_only=True)
+        self.assertFalse(cfg.configured)
+        self.assertEqual((cfg.mqtt_host, cfg.mqtt_user, cfg.mqtt_password), ("192.168.1.33", "u", "p"))
+        ignored = cfg.updated({"transport": "solarman", "logger_ip": "x"}, mqtt_only=True)
+        self.assertEqual(ignored.transport, "")
+        cfg = cfg.updated({"transport": "solarman", "logger_ip": "10.0.0.5", "logger_serial": "123"})
+        self.assertEqual((cfg.mqtt_host, cfg.mqtt_password), ("192.168.1.33", "p"))
+        with self.assertRaises(ValueError):
+            Config().updated({"mqtt_port": "abc"}, mqtt_only=True)
+
+
 @mock.patch.dict(os.environ, {"MQTT_USER": "deye", "MQTT_PASSWORD": "builtin-pw"}, clear=True)
 class NoBuiltinBrokerTest(unittest.TestCase):
     def test_mqtt_off_by_default_and_after_clearing(self):
