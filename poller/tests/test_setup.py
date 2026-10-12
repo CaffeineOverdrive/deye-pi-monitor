@@ -51,7 +51,8 @@ class ConfigTest(unittest.TestCase):
             cfg = load_config(path)
             self.assertEqual((cfg.transport, cfg.logger_ip, cfg.logger_serial), ("solarman", "10.0.0.5", 123))
             self.assertIsNone(cfg.influx_token)
-            self.assertEqual(oct(os.stat(path).st_mode & 0o777), "0o600")
+            if os.name == "posix":   # Windows doesn't keep Unix permission bits
+                self.assertEqual(oct(os.stat(path).st_mode & 0o777), "0o600")
 
 
 class DiscoveryTest(unittest.TestCase):
