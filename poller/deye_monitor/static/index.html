@@ -35,7 +35,9 @@
   @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
   button { font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 6px; cursor: pointer;
            border: 1px solid var(--border); background: var(--surface); color: var(--text); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  a.button { display: inline-block; font-weight: 600; padding: 9px 16px; border-radius: 6px; text-decoration: none;
+             border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+  button.primary, a.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
   button:disabled { opacity: .55; cursor: progress; }
   .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
   .choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -75,7 +77,7 @@
     <div class="status" id="status"><span class="dot"></span><span id="status-text">Loading…</span></div>
     <div class="hint" id="status-detail"></div>
     <div class="tiles" id="live" hidden></div>
-    <div class="actions"><a id="grafana-link" href="#" target="_blank" rel="noopener"><button type="button">Open dashboard</button></a></div>
+    <div class="actions"><a id="grafana-link" class="button primary" href="#" target="_blank" rel="noopener">Open dashboard</a></div>
   </section>
 
   <section>
