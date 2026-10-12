@@ -66,7 +66,9 @@ class MqttSink:
             self.client.username_pw_set(cfg.mqtt_user, cfg.mqtt_password)
         self.client.will_set(f"{self.base}/status", "offline", retain=True)
         self.connected = False
+        self.error: str | None = None   # why the last connection attempt failed
         self.client.on_connect = self._on_connect
+        self.client.on_connect_fail = self._on_connect_fail
         self.client.on_disconnect = self._on_disconnect
         self.client.connect_async(cfg.mqtt_host, cfg.mqtt_port, keepalive=60)
         self.client.loop_start()
@@ -74,13 +76,17 @@ class MqttSink:
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code.is_failure:
             log.error("MQTT connect failed: %s", reason_code)
+            self.error = str(reason_code)
             return
         log.info("MQTT connected to %s:%s", self.cfg.mqtt_host, self.cfg.mqtt_port)
         for s in all_sensors():
             topic = f"{self.cfg.ha_discovery_prefix}/sensor/{self.cfg.device_id}/{s.key}/config"
             client.publish(topic, json.dumps(discovery_payload(s, self.cfg)), retain=True)
         client.publish(f"{self.base}/status", "online", retain=True)
-        self.connected = True
+        self.connected, self.error = True, None
+
+    def _on_connect_fail(self, client, userdata):
+        self.error = "can't reach the broker"
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties):
         self.connected = False

@@ -147,7 +147,7 @@
       <div><label for="mqtt_user">Username</label><input id="mqtt_user" autocomplete="off"></div>
       <div><label for="mqtt_password">Password <span class="hint">(blank = keep current)</span></label><input id="mqtt_password" type="password" autocomplete="new-password"></div>
     </div>
-    <p class="hint">Use a broker-only login: in Home Assistant add one under <b>Settings → Add-ons → Mosquitto broker →
+    <p class="hint">Use a broker-only login: in Home Assistant add one under <b>Settings → Add-ons</b> (called <b>Apps</b> in newer versions) <b>→ Mosquitto broker →
       Configuration → Logins</b> (e.g. <code>deye-monitor</code>), restart the add-on, and enter it here. Avoid a Home
       Assistant person's login: it also opens the Home Assistant app.</p>
     <div class="actions">
@@ -261,8 +261,16 @@ $("save").onclick = e => busy(e.target, async () => {
 $("save-broker").onclick = e => busy(e.target, async () => {
   try {
     await api("/api/mqtt", formBody(MQTT_FIELDS)); $("mqtt_password").value = "";
-    brokerMessage(!$("mqtt_host").value.trim() ? "Saved." : inverterReady ? "Saved. Sending to the broker."
-      : "Saved. Data is sent as soon as the inverter connection above is set up.", "good");
+    if (!$("mqtt_host").value.trim()) { brokerMessage("Saved.", "good"); refresh(); return; }
+    if (!inverterReady) { brokerMessage("Saved. Data is sent as soon as the inverter connection above is set up.", "good"); refresh(); return; }
+    brokerMessage("Saved. Connecting to the broker…");
+    for (let i = 0; i < 10; i++) {   // wait for the real result, up to ~10 s
+      await new Promise(r => setTimeout(r, 1000));
+      const s = await api("/api/status");
+      if (s.mqtt_connected) { brokerMessage("Connected. The Deye inverter device appears in Home Assistant shortly.", "good"); break; }
+      if (s.mqtt_error) { brokerMessage(`Saved, but the broker refused the connection: ${s.mqtt_error}. Check the login in the Mosquitto add-on.`, "bad"); break; }
+      if (i === 9) brokerMessage("Saved, but no answer from the broker yet. The status above updates when it connects.", "bad");
+    }
     refresh();
   } catch (err) { brokerMessage(err.message, "bad"); }
 });
@@ -325,7 +333,7 @@ async function refresh() {
   const ha = s.home_assistant;
   $("mqtt-state").textContent = !ha.enabled ? "MQTT is off: nothing is sent to Home Assistant yet."
     : ha.builtin ? "Using the broker on this Pi. In Home Assistant go to Settings → Devices & services → Add integration → MQTT and enter:"
-    : "Sending to your broker" + (s.mqtt_connected ? " (connected)." : " (not connected).");
+    : "Sending to your broker" + (s.mqtt_connected ? " (connected)." : s.mqtt_error ? ` (not connected: ${s.mqtt_error}).` : " (not connected).");
   $("ha").innerHTML = !ha.enabled ? ""
     : ha.builtin
     ? `<dt>Broker</dt><dd><code>${esc(ha.broker)}</code></dd><dt>Port</dt><dd><code>${esc(ha.port)}</code></dd>

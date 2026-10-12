@@ -58,6 +58,7 @@ class Poller:
             "failures": self.failures,
             "values": self.values,
             "mqtt_connected": bool(self._mqtt and self._mqtt.connected),
+            "mqtt_error": self._mqtt.error if self._mqtt else None,
         }
 
     def test(self, cfg: Config) -> dict[str, float]:
