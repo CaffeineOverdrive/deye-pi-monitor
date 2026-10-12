@@ -8,6 +8,22 @@ DOCKER=${DOCKER:-docker}
 
 rand() { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-"$1"; }
 
+in_use() {   # anything LISTENing on this TCP port (IPv4 or IPv6)?
+  awk -v p=":$(printf '%04X' "$1")" '$4 == "0A" && substr($2, length($2) - 4) == p { f = 1 }
+       END { exit !f }' $(ls /proc/net/tcp /proc/net/tcp6 2>/dev/null)
+}
+
+free_port() {   # free_port KEY: move the port in .env up until nothing uses it
+  local port orig
+  port=$(grep -E "^$1=" .env | cut -d= -f2)
+  orig=$port
+  while in_use "$port"; do port=$((port + 1)); done
+  if [[ $port != "$orig" ]]; then
+    sed -i "s/^$1=.*/$1=$port/" .env
+    echo "Port $orig is already in use on this Pi - using $port for $1."
+  fi
+}
+
 if [[ ! -f .env ]]; then
   sed -e "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=$(rand 12)/" \
       -e "s/^MQTT_PASSWORD=.*/MQTT_PASSWORD=$(rand 16)/" \
