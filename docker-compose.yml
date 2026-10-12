@@ -30,10 +30,6 @@ services:
       DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG:-home}
       DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET:-deye}
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN}
-      # Flush the write-ahead log to disk every 30 s instead of on every write: far
-      # fewer small writes to the SD card. Queries still see new data immediately;
-      # a power cut can lose up to 30 s of samples.
-      INFLUXD_STORAGE_WAL_FSYNC_DELAY: 30s
 
   grafana:
     image: grafana/grafana-oss:11.2.0
