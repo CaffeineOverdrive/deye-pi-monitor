@@ -5,3 +5,4 @@ influxdb-client==1.46.0
 pysolarmanv5==3.0.6
 fastapi==0.115.0
 uvicorn==0.30.6
+zeroconf==0.132.2

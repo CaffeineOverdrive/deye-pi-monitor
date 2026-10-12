@@ -13,8 +13,9 @@ services:
     env_file: .env
     environment:
       INFLUX_URL: http://localhost:${INFLUX_PORT:-8086}
-      MQTT_HOST: localhost
-    depends_on: [influxdb, mosquitto]
+      # MQTT_HOST comes from .env: unset = MQTT off until a broker is chosen on the
+      # setup page; enable-broker.sh sets it to localhost for the built-in broker.
+    depends_on: [influxdb]
 
   influxdb:
     image: influxdb:2.7.10
@@ -50,8 +51,11 @@ services:
       INFLUX_BUCKET: ${INFLUX_BUCKET:-deye}
     depends_on: [influxdb]
 
+  # Optional built-in broker, for networks without Home Assistant's Mosquitto add-on.
+  # Off by default; ./enable-broker.sh turns it on (COMPOSE_PROFILES=broker in .env).
   mosquitto:
     image: eclipse-mosquitto:2.0.18
+    profiles: [broker]
     restart: unless-stopped
     cpu_shares: 256
     ports: ["${MQTT_PORT:-1883}:1883"]

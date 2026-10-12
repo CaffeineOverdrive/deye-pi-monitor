@@ -54,6 +54,25 @@ class ConfigTest(unittest.TestCase):
             if os.name == "posix":   # Windows doesn't keep Unix permission bits
                 self.assertEqual(oct(os.stat(path).st_mode & 0o777), "0o600")
 
+    def test_other_broker_does_not_inherit_credentials(self):
+        cfg = Config().updated({"transport": "rs485", "mqtt_host": "192.168.1.33"})
+        self.assertEqual((cfg.mqtt_host, cfg.mqtt_user, cfg.mqtt_password), ("192.168.1.33", None, None))
+        cfg = cfg.updated({"mqtt_host": "192.168.1.33", "mqtt_user": "pi", "mqtt_password": "pw"})
+        self.assertEqual((cfg.mqtt_user, cfg.mqtt_password), ("pi", "pw"))
+        same = cfg.updated({"mqtt_host": "192.168.1.33", "poll_seconds": "20"})
+        self.assertEqual((same.mqtt_user, same.mqtt_password), ("pi", "pw"))
+        moved = cfg.updated({"mqtt_host": "ha.local", "mqtt_user": "pi"})
+        self.assertEqual((moved.mqtt_user, moved.mqtt_password), ("pi", None))
+
+
+@mock.patch.dict(os.environ, {"MQTT_USER": "deye", "MQTT_PASSWORD": "builtin-pw"}, clear=True)
+class NoBuiltinBrokerTest(unittest.TestCase):
+    def test_mqtt_off_by_default_and_after_clearing(self):
+        self.assertIsNone(Config().mqtt_host)
+        self.assertFalse(Config().builtin_broker)
+        ext = Config().updated({"transport": "rs485", "mqtt_host": "ha.local", "mqtt_user": "u"})
+        self.assertIsNone(ext.updated({"mqtt_host": ""}).mqtt_host)
+
 
 class DiscoveryTest(unittest.TestCase):
     def test_parse_reply(self):

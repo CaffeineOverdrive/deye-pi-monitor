@@ -134,20 +134,32 @@
 
   <section>
     <h2>3. Home Assistant (optional)</h2>
-    <p class="hint" style="margin-top:0">In Home Assistant go to <b>Settings → Devices &amp; services → Add integration → MQTT</b> and enter:</p>
+    <p class="hint" style="margin-top:0" id="mqtt-state"></p>
     <dl id="ha"></dl>
-    <p class="hint">A <b>Deye inverter</b> device then appears automatically. For the Energy dashboard use
-      <i>Grid import total</i>, <i>Grid export total</i>, <i>PV energy total</i> and <i>Battery charge/discharge total</i>.</p>
+    <p class="hint">The Pi sends live readings to Home Assistant through an MQTT broker. If Home Assistant runs its
+      <b>Mosquitto broker</b> add-on, press <b>Find broker</b>; a <b>Deye inverter</b> device then appears in
+      Home Assistant automatically.</p>
+    <div class="actions"><button type="button" id="scan-brokers">Find broker</button></div>
+    <ul class="found" id="brokers"></ul>
+    <div class="row">
+      <div><label for="mqtt_host">Broker host <span class="hint">(blank = off, or the built-in broker)</span></label><input id="mqtt_host" autocomplete="off"></div>
+      <div><label for="mqtt_port">Port</label><input id="mqtt_port" type="number" value="1883"></div>
+      <div><label for="mqtt_user">Username</label><input id="mqtt_user" autocomplete="off"></div>
+      <div><label for="mqtt_password">Password <span class="hint">(blank = keep current)</span></label><input id="mqtt_password" type="password" autocomplete="new-password"></div>
+    </div>
+    <p class="hint">In Home Assistant, create a user for the monitor under <b>Settings → People → Users</b> (or in the
+      Mosquitto add-on's logins), and enter it here.</p>
+    <div class="actions">
+      <button type="button" id="test-broker">Test broker</button>
+      <button type="button" class="primary" id="save-broker">Save</button>
+    </div>
+    <div class="msg" id="broker-msg"></div>
     <details>
-      <summary>Use my own MQTT broker instead</summary>
-      <p class="hint">For example the Mosquitto add-on in Home Assistant. Leave the password blank to keep the current one.</p>
-      <div class="row">
-        <div><label for="mqtt_host">Broker host</label><input id="mqtt_host" autocomplete="off"></div>
-        <div><label for="mqtt_port">Port</label><input id="mqtt_port" type="number" value="1883"></div>
-        <div><label for="mqtt_user">Username</label><input id="mqtt_user" autocomplete="off"></div>
-        <div><label for="mqtt_password">Password</label><input id="mqtt_password" type="password" autocomplete="new-password"></div>
-      </div>
-      <p class="hint">Saved together with the connection settings above.</p>
+      <summary>No Home Assistant broker?</summary>
+      <p class="hint">Install the <b>Mosquitto broker</b> add-on in Home Assistant (recommended), or start a broker on
+        this Pi by running <code>~/deye-pi-monitor/enable-broker.sh</code>, then press Find broker again.
+        For the Energy dashboard use <i>Grid import total</i>, <i>Grid export total</i>, <i>PV energy total</i> and
+        <i>Battery charge/discharge total</i>.</p>
     </details>
   </section>
 </main>
@@ -184,7 +196,8 @@ function formBody() {
   return body;
 }
 
-function message(text, kind) { const m = $("test-msg"); m.textContent = text; m.className = "msg " + (kind || ""); }
+function message(text, kind, id = "test-msg") { const m = $(id); m.textContent = text; m.className = "msg " + (kind || ""); }
+const brokerMessage = (text, kind) => message(text, kind, "broker-msg");
 
 function tiles(values) {
   return TILES.map(([k, label, unit]) =>
@@ -236,9 +249,53 @@ $("test").onclick = e => busy(e.target, async () => {
   } catch (err) { message(err.message, "bad"); }
 });
 
-$("save").onclick = e => busy(e.target, async () => {
-  try { await api("/api/settings", formBody()); message("Saved. Polling has started.", "good"); $("mqtt_password").value = ""; refresh(); }
-  catch (err) { message(err.message, "bad"); }
+async function saveAll(say) {
+  try { await api("/api/settings", formBody()); say("Saved. Polling has started.", "good"); $("mqtt_password").value = ""; refresh(); }
+  catch (err) { say(err.message, "bad"); }
+}
+$("save").onclick = e => busy(e.target, () => saveAll(message));
+$("save-broker").onclick = e => busy(e.target, () => saveAll(brokerMessage));
+
+const BROKER_STATUS = {
+  ok: "logs in without a password", auth_required: "needs a username and password",
+  bad_credentials: "username or password rejected", refused: "refused the connection",
+  not_mqtt: "port open, but not an MQTT broker", unreachable: "no broker on this port",
+};
+
+$("scan-brokers").onclick = e => busy(e.target, async () => {
+  $("brokers").innerHTML = ""; brokerMessage("Searching the network…");
+  try {
+    const { brokers } = await api("/api/brokers/scan", {});
+    const usable = brokers.filter(b => ["ok", "auth_required", "bad_credentials"].includes(b.status));
+    if (!brokers.length) { brokerMessage("No Home Assistant or MQTT broker answered on this network. See “No Home Assistant broker?” below.", "bad"); return; }
+    brokerMessage(usable.length ? "Pick a broker, then enter its username and password and test." :
+      "Found Home Assistant, but no MQTT broker on it. Install its Mosquitto broker add-on and search again.", usable.length ? "" : "bad");
+    for (const b of brokers) {
+      const li = document.createElement("li"), btn = document.createElement("button");
+      btn.type = "button"; btn.textContent = `${b.source} at ${b.host}:${b.port}: ${BROKER_STATUS[b.status] || b.status}`;
+      btn.disabled = !usable.includes(b);
+      btn.onclick = () => {
+        if (b.host === "localhost") {   // built-in broker: blank fields = its own credentials
+          for (const f of ["mqtt_host", "mqtt_user", "mqtt_password"]) $(f).value = "";
+          $("mqtt_port").value = 1883; brokerMessage("Built-in broker selected. Save to start sending.", "good"); return;
+        }
+        $("mqtt_host").value = b.host; $("mqtt_port").value = b.port;
+        if (b.host !== $("mqtt_host").dataset.saved) { $("mqtt_user").value = ""; $("mqtt_password").value = ""; }
+        brokerMessage(b.status === "ok" ? "Broker selected. Save to start sending." : "Broker selected. Enter its username and password, then test.", "good");
+      };
+      li.append(btn); $("brokers").append(li);
+    }
+  } catch (err) { brokerMessage(err.message, "bad"); }
+});
+
+$("test-broker").onclick = e => busy(e.target, async () => {
+  brokerMessage("Connecting to the broker…");
+  try {
+    const r = await api("/api/brokers/test", formBody());
+    const why = ["unreachable", "refused"].includes(r.status) ? ` (${r.detail})` : "";
+    brokerMessage(r.status === "ok" ? "Logged in. Save to start sending." : `Broker: ${BROKER_STATUS[r.status] || r.status}${why}.`,
+                  r.status === "ok" ? "good" : "bad");
+  } catch (err) { brokerMessage(err.message, "bad"); }
 });
 
 function ago(ts) { const s = Math.round(Date.now() / 1000 - ts); return s < 60 ? `${s}s ago` : `${Math.round(s / 60)} min ago`; }
@@ -254,17 +311,23 @@ async function refresh() {
   $("grafana-link").href = s.grafana_url;
 
   const ha = s.home_assistant;
-  $("ha").innerHTML = ha.builtin
+  $("mqtt-state").textContent = !ha.enabled ? "MQTT is off: nothing is sent to Home Assistant yet."
+    : ha.builtin ? "Using the broker on this Pi. In Home Assistant go to Settings → Devices & services → Add integration → MQTT and enter:"
+    : "Sending to your broker" + (s.mqtt_connected ? " (connected)." : " (not connected).");
+  $("ha").innerHTML = !ha.enabled ? ""
+    : ha.builtin
     ? `<dt>Broker</dt><dd><code>${esc(ha.broker)}</code></dd><dt>Port</dt><dd><code>${esc(ha.port)}</code></dd>
        <dt>Username</dt><dd><code>${esc(ha.username)}</code></dd><dt>Password</dt><dd><code>${esc(ha.password)}</code></dd>`
-    : `<dt>Sending to</dt><dd><code>${esc(ha.broker)}:${esc(ha.port)}</code> (your broker; HA picks it up automatically)</dd>`;
+    : `<dt>Broker</dt><dd><code>${esc(ha.broker)}:${esc(ha.port)}</code></dd>`;
 
   if (!loaded) {   // fill the form once, so polling doesn't overwrite what the user is typing
     loaded = true;
     const st = s.settings;
     if (st.transport) document.querySelector(`input[name=transport][value=${st.transport}]`).checked = true;
     for (const f of FIELDS) if (st[f] !== null && st[f] !== undefined && f !== "mqtt_password") $(f).value = st[f];
-    if (ha.builtin) { for (const f of ["mqtt_host", "mqtt_user"]) $(f).value = ""; $("mqtt_port").value = 1883; }
+    // built-in broker or MQTT off: its .env login must not be offered for another broker
+    if (ha.builtin || !ha.enabled) { for (const f of ["mqtt_host", "mqtt_user"]) $(f).value = ""; $("mqtt_port").value = 1883; }
+    $("mqtt_host").dataset.saved = ha.builtin ? "" : st.mqtt_host || "";
     $("serial_port").dataset.saved = st.transport === "rs485" ? st.serial_port : "";
     showTransport();
   }

@@ -10,8 +10,11 @@ Deye ─┬─ Wi-Fi logger (Solarman stick) ──LAN──┐
                                 Raspberry Pi
                                  ├─ setup page   http://<pi>:8088
                                  ├─ InfluxDB     history on the Pi
-                                 ├─ Grafana      dashboard  http://<pi>:3000
-                                 └─ Mosquitto    MQTT → Home Assistant (auto-discovered)
+                                 └─ Grafana      dashboard  http://<pi>:3000
+                                              │
+                                              ▼  MQTT (optional)
+                      Home Assistant's broker, or a built-in one on the Pi
+                      → Home Assistant (auto-discovered)
 ```
 
 It only ever *reads* from the inverter and never changes its settings.
@@ -37,7 +40,8 @@ prints the setup page address and the admin password.
 - Its containers run at low CPU priority, so the printer host gets the CPU first.
   Install or update when the printer is idle: the first build takes a few minutes of CPU.
 - Any default port already in use is moved automatically, so it won't clash with
-  OctoPi's webcam on 8080 or an existing MQTT broker on 1883.
+  OctoPi's webcam on 8080 or nginx on 8088.
+- It doesn't run its own MQTT broker unless you ask it to (see step 3 below).
 
 ## Set up
 
@@ -55,10 +59,17 @@ It's also stored in `~/deye-pi-monitor/.env`.
      anything else, then press **Refresh** on the setup page.
 2. Press **Test connection**. You should see PV, load and battery readings that match
    the inverter's screen. Then press **Save and start**.
-3. **Home Assistant (optional):** the page shows the broker, username and password to
-   enter under **Settings → Devices & services → Add integration → MQTT**. A
-   **Deye inverter** device then appears automatically. Already running the Mosquitto
-   add-on in HA? Open **Use my own MQTT broker instead** and point the Pi at it.
+3. **Home Assistant (optional):** live data reaches Home Assistant through an MQTT
+   broker. MQTT stays off until you choose one.
+   - **Home Assistant with the Mosquitto broker add-on (usual):** press **Find broker**.
+     The Pi looks for Home Assistant on your network and checks for a broker on it.
+     Pick it, enter a Home Assistant username and password (create a user for the
+     monitor under **Settings → People**), press **Test broker**, then **Save**.
+   - **No broker in Home Assistant:** install its Mosquitto broker add-on, or run
+     `~/deye-pi-monitor/enable-broker.sh` to start one on the Pi. The page then shows
+     what to enter under **Settings → Devices & services → Add integration → MQTT**.
+
+   Either way a **Deye inverter** device then appears in Home Assistant automatically.
 
 For the HA **Energy** dashboard use *Grid import total*, *Grid export total*,
 *PV energy total* and *Battery charge total* / *Battery discharge total*.
@@ -102,6 +113,7 @@ Run these in `~/deye-pi-monitor`:
 | Raw register dump | `docker compose exec poller python -m deye_monitor.dump` |
 | Restart | `docker compose restart` |
 | Stop using RS485 | `./enable-rs485.sh --disable` |
+| Built-in MQTT broker on / off | `./enable-broker.sh` / `./enable-broker.sh --disable` |
 | Uninstall, keeping data | `docker compose down` |
 | Uninstall, deleting data | `docker compose down -v && cd .. && rm -rf deye-pi-monitor` |
 
@@ -109,6 +121,10 @@ Back up history with
 `docker compose exec influxdb influx backup /var/lib/influxdb2/backup -t <INFLUX_TOKEN from .env>`.
 
 ## Troubleshooting
+
+- **"Find broker" finds nothing:** it relies on Home Assistant announcing itself on the
+  network (mDNS), which some routers block between Wi-Fi and wired clients. Type the
+  Home Assistant IP into **Broker host** and press **Test broker**.
 
 - **"Find my logger" finds nothing:** the Pi and the logger must be on the same network,
   and some routers block broadcast between Wi-Fi and wired clients. Enter the IP by hand:

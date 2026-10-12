@@ -9,7 +9,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from .config import load_config, save_config
+from .brokers import find_brokers, probe
+from .config import Config, load_config, save_config
 from .discovery import list_serial_ports, local_ip, scan_loggers
 from .service import Poller
 
@@ -56,13 +57,15 @@ def index() -> FileResponse:
 def status(p: Poller = Depends(poller)) -> dict:
     cfg = p.cfg
     ip = local_ip()
-    builtin_broker = cfg.mqtt_host in ("localhost", "127.0.0.1", "mosquitto")
+    builtin_broker = cfg.builtin_broker
     return {
         **p.status(),
         "settings": {**cfg.editable(), "mqtt_password": None},
         "has_mqtt_password": bool(cfg.mqtt_password),
         "grafana_url": f"http://{ip}:{cfg.grafana_port}",
         "home_assistant": {
+            "enabled": bool(cfg.mqtt_host),
+            "builtin_available": Config().builtin_broker,
             "broker": ip if builtin_broker else cfg.mqtt_host,
             "port": cfg.mqtt_port,
             "username": cfg.mqtt_user,
@@ -76,6 +79,28 @@ def status(p: Poller = Depends(poller)) -> dict:
 @app.post("/api/scan", dependencies=[Depends(require_admin)])
 def scan() -> dict:
     return {"loggers": scan_loggers()}
+
+
+@app.post("/api/brokers/scan", dependencies=[Depends(require_admin)])
+def scan_brokers() -> dict:
+    env = Config()   # the built-in broker, if enable-broker.sh turned it on
+    return {"brokers": find_brokers(include_builtin=env.builtin_broker, builtin_port=env.mqtt_port)}
+
+
+@app.post("/api/brokers/test", dependencies=[Depends(require_admin)])
+def test_broker(body: dict, p: Poller = Depends(poller)) -> dict:
+    host = str(body.get("mqtt_host") or "").strip()
+    if not host:
+        raise HTTPException(422, "enter the broker host")
+    try:
+        port = int(body.get("mqtt_port") or 1883)
+    except ValueError:
+        raise HTTPException(422, "port must be a number") from None
+    user = str(body.get("mqtt_user") or "").strip() or None
+    password = body.get("mqtt_password") or None
+    if password is None and host == p.cfg.mqtt_host and user == p.cfg.mqtt_user:
+        password = p.cfg.mqtt_password   # blank = the stored password for this broker
+    return probe(host, port, user, password)
 
 
 @app.get("/api/serial-ports", dependencies=[Depends(require_admin)])

@@ -15,6 +15,8 @@ log = logging.getLogger(__name__)
 SETTINGS_FILE = os.environ.get("SETTINGS_FILE", "/data/settings.json")
 # The only serial device the container can see: the adapter chosen with enable-rs485.sh
 RS485_PATH = "/dev/deye-rs485"
+# MQTT_HOST values that mean the optional Mosquitto container (enable-broker.sh)
+BUILTIN_HOSTS = ("localhost", "127.0.0.1", "mosquitto")
 
 # Fields the web UI may change and persist.
 EDITABLE = (
@@ -70,6 +72,10 @@ class Config:
             return bool(self.logger_ip and self.logger_serial)
         return self.transport == "rs485" and bool(self.serial_port)
 
+    @property
+    def builtin_broker(self) -> bool:
+        return self.mqtt_host in BUILTIN_HOSTS
+
     def editable(self) -> dict:
         return {k: getattr(self, k) for k in EDITABLE}
 
@@ -78,11 +84,19 @@ class Config:
         data = asdict(self)
         defaults = asdict(Config())   # environment values
         changes = dict(changes)
-        if "mqtt_host" in changes and changes["mqtt_host"] in ("", None):
-            # blank broker = back to the built-in one, with its own credentials
+        new_host = str(changes.get("mqtt_host") or "").strip()
+        if "mqtt_host" in changes and not new_host:
+            # blank broker = back to the default: the built-in one with its own
+            # credentials if enabled with enable-broker.sh, otherwise MQTT off
             for k in ("mqtt_host", "mqtt_port", "mqtt_user", "mqtt_password"):
                 changes.pop(k, None)
                 data[k] = defaults[k]
+        elif new_host and new_host != self.mqtt_host:
+            # a different broker never inherits the old one's credentials
+            for k in ("mqtt_user", "mqtt_password"):
+                if not changes.get(k):
+                    changes.pop(k, None)
+                    data[k] = None
         for k, v in changes.items():
             if k not in EDITABLE:
                 continue
