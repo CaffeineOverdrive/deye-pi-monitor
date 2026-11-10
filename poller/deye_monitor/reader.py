@@ -25,6 +25,10 @@ class _Reader:
     def _reset(self) -> None:
         pass
 
+    def _recover(self, error: BaseException) -> bool:
+        """Get ready to retry on the open connection. False = reconnect instead."""
+        return False
+
     def close(self) -> None:
         """Release the port/socket; the next read reopens it."""
         self._reset()
@@ -38,9 +42,11 @@ class _Reader:
                 reason = str(e) or ("no reply" if isinstance(e, queue.Empty) else type(e).__name__)
                 log.warning("read %d+%d failed (attempt %d/%d): %s",
                             start, count, attempt, retries, reason)
-                self._reset()
+                if not self._recover(e):
+                    self._reset()
                 if attempt < retries:
                     time.sleep(0.5 * attempt)
+        self._reset()   # silent for every attempt: start the next poll on a new connection
         raise IOError(f"no valid reply from the inverter ({reason})")
 
     def read_raw(self) -> dict[int, int]:
@@ -75,7 +81,12 @@ class RS485Reader(_Reader):
 
 
 class SolarmanReader(_Reader):
-    """Connects lazily and reconnects after any error - loggers drop idle sockets."""
+    """Connects lazily and keeps the connection between polls.
+
+    A lost reply is retried on the same socket. Reconnecting after one is what caused
+    the outages: the logger keeps the old connection for about 5 minutes and refuses
+    new ones until then ("No socket available"). Only a broken socket reconnects.
+    """
 
     def __init__(self, host: str, serial_number: int, port: int = 8899, slave_id: int = 1,
                  timeout: float = 10):
@@ -83,6 +94,7 @@ class SolarmanReader(_Reader):
 
         # queue.Empty is how pysolarmanv5 reports "no reply before the timeout"
         self.errors = (V5FrameError, NoSocketAvailableError, OSError, queue.Empty)
+        self._keep = (V5FrameError, queue.Empty)   # connection still fine
         self.host, self.serial_number, self.port, self.slave_id = host, serial_number, port, slave_id
         self.timeout = timeout
         self.client = None
@@ -95,6 +107,19 @@ class SolarmanReader(_Reader):
                                        mb_slave_id=self.slave_id, socket_timeout=self.timeout,
                                        v5_error_correction=True)
         return self.client.read_holding_registers(start, count)
+
+    def _recover(self, error: BaseException) -> bool:
+        if self.client is None or not isinstance(error, self._keep):
+            return False
+        # A reply that arrives after the timeout would be taken as the answer to the
+        # retry (and rejected for its sequence number), so drop anything queued.
+        pending = getattr(self.client, "_data_queue", None)
+        while pending is not None:
+            try:
+                pending.get_nowait()
+            except queue.Empty:
+                break
+        return True
 
     def _reset(self) -> None:
         if self.client is not None:
